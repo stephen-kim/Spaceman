@@ -6,6 +6,16 @@ The format follows Keep a Changelog and uses semantic version headings.
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-11-02
+
+### Changed
+- New Sparkle EdDSA public key. Releases from this version on ship a signed `appcast.xml`, so
+  "Check for Updates" works and later versions install automatically. Earlier builds (1.1.1 and
+  below) cannot verify this feed and must be updated by hand once.
+
+### Fixed
+- Release scripts use the prebuilt Sparkle command line tools, which also work on current Xcode.
+
 ## [1.1.1] - 2026-11-02
 
 ### Fixed
