@@ -6,6 +6,8 @@ The format follows Keep a Changelog and uses semantic version headings.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-02
+
 ### Added
 - Merged the feature set of [ruittenb/Spaceman](https://github.com/ruittenb/Spaceman): click-to-switch and
   menu/grid space switching (smooth, fast or instant), navigation arrows and Mission Control button, HUD overlay,
