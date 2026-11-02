@@ -17,6 +17,28 @@ Also, the menu and menu bar icons enable switching between spaces.
 **For switching spaces, Spaceman requires Accessibility and Automation permissions**
 ([see below](#setup-requirements)).
 
+## 🔹 Why This Fork?
+
+This repository builds on [ruittenb/Spaceman](https://github.com/ruittenb/Spaceman), which already
+turned the original menu bar indicator into a full space switcher (click-to-switch, HUD, icon
+styles, colors, two-row layout, AppleScript control, and more). Everything from that fork is
+included here. On top of it, this fork adds:
+
+- **"Current / total" mode**: instead of listing every space (`1 2 3 4 5 6`), show a single
+  compact indicator for the current space, such as `1/6`. With multiple displays you get one
+  indicator per display, and the total follows the "Restart space numbering by display" setting.
+  Select it under Preferences → Appearance → Spaces shown, or from the right-click menu.
+
+  <img src="images/Button-11-CurrentTotal.png" width="auto" height="40px">
+  <img src="images/Button-11-CurrentTotal-TwoDisplays.png" width="auto" height="40px">
+
+- **Automatic updates from GitHub Releases**: a tag-triggered workflow archives, signs, builds the
+  Sparkle appcast and publishes the DMG to this repository's Releases, so "Check for Updates"
+  works without a separate website.
+- **Continuous integration**: SwiftLint and the unit test suite run on every push to `main`.
+- **Current toolchain**: targets macOS 15 Sequoia and the latest Sparkle, KeyboardShortcuts and
+  LaunchAtLogin releases.
+
 ## 🔹 Installation
 
 ### Through GitHub
