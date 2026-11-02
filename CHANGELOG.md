@@ -15,6 +15,9 @@ The format follows Keep a Changelog and uses semantic version headings.
 - "Current / total" visibility mode that shows a single compact `1/6` indicator per display.
 - Unit test target (`SpacemanTests`), now run in CI.
 
+### Fixed
+- Sparkle feed URL now points at this repository's GitHub Releases, where the release workflow publishes `appcast.xml`.
+
 ### Changed
 - The app is no longer sandboxed (required for space switching via Accessibility and simulated gestures).
 - Sparkle updated to 2.9.x.

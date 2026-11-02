@@ -39,7 +39,7 @@
 	<key>OSAScriptingDefinition</key>
 	<string>Scriptable.sdef</string>
 	<key>SUFeedURL</key>
-	<string>https://github.com/Jaysce/Spaceman/releases/latest/download/appcast.xml</string>
+	<string>https://github.com/stephen-kim/Spaceman/releases/latest/download/appcast.xml</string>
 	<key>SUPublicEDKey</key>
 	<string>P929qjJkfvsft7RPb/lqrHzfvhaKpNV5mvelAC4SbwA=</string>
 </dict>
