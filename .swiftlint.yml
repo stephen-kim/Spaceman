@@ -2,29 +2,42 @@ included:
   - Spaceman
 
 excluded:
-  - Spaceman.xcodeproj
-  - Images
+  - build
+  - DerivedData
 
 disabled_rules:
-  - todo
+  - type_body_length
+  - large_tuple
+  - file_length
 
 opt_in_rules:
   - force_cast
   - force_try
   - force_unwrapping
-  - implicitly_unwrapped_optional
   - empty_count
-  - empty_string
-  - redundant_nil_coalescing
-  - contains_over_filter_count
-  - contains_over_filter_is_empty
+  - first_where
+  - private_over_fileprivate
 
 line_length:
   warning: 120
   error: 200
-  ignores_comments: true
-  ignores_urls: true
-  ignores_function_declarations: true
-  ignores_interpolated_strings: true
 
-reporter: xcode
+function_body_length:
+  warning: 140
+  error: 200
+
+cyclomatic_complexity:
+  warning: 18
+  error: 24
+
+identifier_name:
+  excluded:
+    - a  # sort closure parameter
+    - b  # sort closure parameter
+    - i  # loop index
+    - id # identifier
+    - r  # color component (red)
+    - g  # color component (green)
+    - b  # color component (blue)
+    - x  # coordinate
+    - y  # coordinate

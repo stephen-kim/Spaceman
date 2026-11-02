@@ -7,22 +7,150 @@
 
 import Foundation
 
-enum Constants {
+struct Constants {
+    static let maxSpaceNameLength = 16
+    static let minMenuWidth: CGFloat = 350
+    static let inactiveAlpha: CGFloat = 0.4
 
     enum AppInfo {
         static let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
-        static let repo: URL = {
-            guard let url = URL(string: "https://github.com/Jaysce/Spaceman") else {
-                fatalError("Invalid repository URL")
-            }
-            return url
-        }()
-        static let website: URL = {
-            guard let url = URL(string: "https://jaysce.dev/projects/spaceman") else {
-                fatalError("Invalid website URL")
-            }
-            return url
-        }()
+        static let bundleId = Bundle.main.bundleIdentifier ?? ""
+        // swiftlint:disable:next force_unwrapping
+        static let repo = URL(string: "https://github.com/stephen-kim/Spaceman")!
+        // swiftlint:disable:next force_unwrapping
+        static let website = URL(string: "https://github.com/stephen-kim/Spaceman/releases")!
     }
 
+    //  23   = 277 px ; button distance
+    //  18   = 219 px ; button width
+    //  10   = 120 px ; left margin
+    //   5   =  60 px ; gap
+    //   2.5 =  30 px ; semi gap
+    //   7.5 =  90 px ; void left
+
+    static let sizes: [IconSize: GuiSize] = [
+        .narrow: GuiSize(
+            gapWidthSpaces: 2,
+            gapWidthDisplays: 8,
+            gapHeightRows: 0,
+            horizontalPadding: 3,
+            verticalPadding: 3,
+            borderWidth: 1,
+            fontSize: 10
+        ),
+        .compact: GuiSize(
+            gapWidthSpaces: 3,
+            gapWidthDisplays: 10,
+            gapHeightRows: 0,
+            horizontalPadding: 4,
+            verticalPadding: 3,
+            borderWidth: 1,
+            fontSize: 10
+        ),
+        .medium: GuiSize(
+            gapWidthSpaces: 4,
+            gapWidthDisplays: 12,
+            gapHeightRows: 0,
+            horizontalPadding: 5,
+            verticalPadding: 3,
+            borderWidth: 1.17,
+            fontSize: 10
+        ),
+        .large: GuiSize(
+            gapWidthSpaces: 5,
+            gapWidthDisplays: 14,
+            gapHeightRows: 0,
+            horizontalPadding: 6,
+            verticalPadding: 3.6,
+            borderWidth: 1.33,
+            fontSize: 12
+        ),
+        .extraLarge: GuiSize(
+            gapWidthSpaces: 6,
+            gapWidthDisplays: 16,
+            gapHeightRows: 0,
+            horizontalPadding: 7,
+            verticalPadding: 4.5,
+            borderWidth: 1.67,
+            fontSize: 14
+        ),
+        .enormous: GuiSize(
+            gapWidthSpaces: 6,
+            gapWidthDisplays: 16,
+            gapHeightRows: 0,
+            horizontalPadding: 8,
+            verticalPadding: 5.25,
+            borderWidth: 2,
+            fontSize: 16
+        )
+    ]
+
+    static let sizesTwoRows: [IconSize: GuiSize] = [
+        .compact: GuiSize(
+            gapWidthSpaces: 1,
+            gapWidthDisplays: 6,
+            gapHeightRows: 1,
+            horizontalPadding: 2,
+            verticalPadding: 2,
+            borderWidth: 1,
+            fontSize: 9
+        ),
+        .medium: GuiSize(
+            gapWidthSpaces: 2,
+            gapWidthDisplays: 8,
+            gapHeightRows: 2,
+            horizontalPadding: 2.5,
+            verticalPadding: 1.75,
+            borderWidth: 1,
+            fontSize: 9
+        ),
+        .large: GuiSize(
+            gapWidthSpaces: 3,
+            gapWidthDisplays: 10,
+            gapHeightRows: 2,
+            horizontalPadding: 3,
+            verticalPadding: 1.5,
+            borderWidth: 1,
+            fontSize: 10
+        ),
+        // The two sizes below only fit the taller menu bar of notched
+        // MacBooks (34pt on a 16" at the default scaled resolution).
+        // On a 22pt bar the vertical-padding reduction in
+        // IconCreator.getIcon() shrinks them until they fit.
+        .extraLarge: GuiSize(
+            gapWidthSpaces: 3,
+            gapWidthDisplays: 10,
+            gapHeightRows: 2,
+            horizontalPadding: 3.5,
+            verticalPadding: 2,
+            borderWidth: 1,
+            fontSize: 12
+        ),
+        .enormous: GuiSize(
+            gapWidthSpaces: 4,
+            gapWidthDisplays: 12,
+            gapHeightRows: 2,
+            horizontalPadding: 4,
+            verticalPadding: 1.5,
+            borderWidth: 1,
+            fontSize: 13
+        )
+    ]
+
+    /// Returns the nearest IconSize that has a two-row entry.
+    static func nearestTwoRowIconSize(for size: IconSize) -> IconSize {
+        if sizesTwoRows[size] != nil { return size }
+        switch size {
+        case .narrow, .compact:              return .compact
+        case .medium:                        return .medium
+        case .large, .extraLarge, .enormous: return .large
+        }
+    }
+
+    /// Returns the two-row GuiSize for the given size, mapping to the
+    /// nearest available size if the size has no two-row entry.
+    static func nearestTwoRowSize(for size: IconSize) -> GuiSize {
+        // swiftlint:disable:next force_unwrapping
+        return sizesTwoRows[nearestTwoRowIconSize(for: size)]!
+    }
 }

@@ -22,3 +22,20 @@ jobs:
 
       - name: Run SwiftLint
         run: swiftlint lint Spaceman --config .swiftlint.yml --reporter github-actions-logging --strict --no-cache
+
+  test:
+    name: Unit Tests
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run tests
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project Spaceman.xcodeproj \
+            -scheme Spaceman \
+            -destination 'platform=macOS' \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO

@@ -12,3 +12,8 @@ DerivedData/
 
 # SwiftPM local metadata
 .swiftpm/
+
+# Release artifacts
+release-artifacts/
+*.xcarchive
+*.dmg

@@ -1,0 +1,54 @@
+//
+//  DisplayGeometryUtilities.swift
+//  Spaceman
+//
+//  Created by René Uittenbogaard on 2025-10-08.
+//
+
+import Cocoa
+import Foundation
+
+class DisplayGeometryUtilities {
+    static let verticalStackMargin: CGFloat = 20
+
+    static func getDisplayCenter(display: NSDictionary) -> CGPoint {
+        guard let uuidString = display["Display Identifier"] as? String else { return .zero }
+        let uuid = CFUUIDCreateFromString(kCFAllocatorDefault, uuidString as CFString)
+        let did = CGDisplayGetDisplayIDFromUUID(uuid)
+        // Prefer NSScreen frame for consistent origin handling
+        for screen in NSScreen.screens {
+            if let num = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber,
+               CGDirectDisplayID(num.uint32Value) == did {
+                let frame = screen.frame
+                return CGPoint(x: frame.origin.x + frame.size.width/2, y: frame.origin.y + frame.size.height/2)
+            }
+        }
+        let bounds = CGDisplayBounds(did)
+        return CGPoint(x: bounds.origin.x + bounds.size.width/2, y: bounds.origin.y + bounds.size.height/2)
+    }
+
+    static func getDisplayHeight(display: NSDictionary) -> CGFloat {
+        guard let uuidString = display["Display Identifier"] as? String else { return 0 }
+        let uuid = CFUUIDCreateFromString(kCFAllocatorDefault, uuidString as CFString)
+        let did = CGDisplayGetDisplayIDFromUUID(uuid)
+        // Prefer NSScreen frame for consistent origin handling
+        for screen in NSScreen.screens {
+            if let num = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber,
+               CGDirectDisplayID(num.uint32Value) == did {
+                return screen.frame.size.height
+            }
+        }
+        return CGDisplayBounds(did).size.height
+    }
+
+    static func getIsVerticallyArranged(display1: NSDictionary, display2: NSDictionary) -> Bool {
+        // Displays are vertically stacked if deltaY is within margin from average height
+        let center1 = DisplayGeometryUtilities.getDisplayCenter(display: display1)
+        let center2 = DisplayGeometryUtilities.getDisplayCenter(display: display2)
+        let height1 = getDisplayHeight(display: display1)
+        let height2 = getDisplayHeight(display: display2)
+        let averageHeight = (height1 + height2) / 2
+        let deltaY = abs(center1.y - center2.y)
+        return abs(deltaY - averageHeight) < verticalStackMargin
+    }
+}

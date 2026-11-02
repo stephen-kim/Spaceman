@@ -1,5 +1,5 @@
 //
-//  IconBuilder.swift
+//  IconCreator.swift
 //  Spaceman
 //
 //  Created by Sasindu Jayasinghe on 23/11/20.
@@ -7,248 +7,932 @@
 
 import AppKit
 import Foundation
+import SwiftUI
+
+/// A rendered space icon together with the display metadata needed for merging.
+struct SpaceIconInfo {
+    let image: NSImage
+    let nextSpaceOnDifferentDisplay: Bool
+    let isFullScreen: Bool
+    let spaceID: String
+    let colorHex: String?
+    let spaceNumber: Int
+}
 
 class IconCreator {
-    private let defaults = UserDefaults.standard
-    private var iconSize = NSSize(width: 18, height: 12)
-    private let gapWidth = CGFloat(5)
-    private let displayGapWidth = CGFloat(15)
+    @AppStorage("iconSize") private var iconSize = IconSize.medium
+    @AppStorage("iconText") private var iconText = IconText.numbers
+    @AppStorage("rowLayout") private var rowLayout = RowLayout.singleRow
+    @AppStorage("visibleSpacesMode") private var visibleSpacesMode = VisibleSpacesMode.all
+    @AppStorage("neighborRadius") private var neighborRadius = 1
+    @AppStorage("restartNumberingByDisplay") private var restartNumberingByDisplay = false
+    @AppStorage("decorationActive") private var decorationActive = IconStyle.filledRounded
+    @AppStorage("decorationInactive") private var decorationInactive = IconStyle.borderedRounded
+    @AppStorage("useVariableWidth") private var useVariableWidth = false
+    @AppStorage("fontDesign") private var fontDesign = FontDesign.monospaced
+    @AppStorage("showFullscreenSpaces") private var showFullscreenSpaces = true
+    @AppStorage("showMissionControl") private var showMissionControl = false
+    @AppStorage("showNavArrows") private var showNavArrows = false
     private var displayCount = 1
+    private var cellSize = NSSize(width: 0, height: 0)
+    private var gapWidth = CGFloat.zero
+    private var displayGapWidth = CGFloat.zero
+    private var minIconWidth = CGFloat.zero
+    private let spaceFilter = SpaceFilter()
+    /// Space counts keyed by spaceID, used by the "current / total" mode.
+    private var spaceTotals: [String: Int] = [:]
 
-    func getIcon(for spaces: [Space]) -> NSImage {
-        iconSize.width = 18
-        let spacemanStyle = SpacemanStyle(rawValue: defaults.integer(forKey: "displayStyle"))
-        var icons = [NSImage]()
+    public var sizes: GuiSize!
+    public var iconWidths: [IconWidth] = []
 
-        if spacemanStyle == .compact {
-            return mergeIcons(createCompactIcons(spaces))
-        }
+    /// Icon size override for the current render pass (fit-to-width). Set at
+    /// the start of getIcon() and cleared via defer. Only the size is ever
+    /// overridden: names, text style and row layout always follow the user's
+    /// preferences.
+    private var sizeOverride: IconSize?
 
-        for space in spaces {
-            let iconResourceName: String
-            switch (space.isCurrentSpace, space.isFullScreen) {
-            case (true, true):
-                iconResourceName = spacemanStyle == .text ? "NamedFullActive" : "SpaceManIconFullEn"
-            case (true, false):
-                iconResourceName = "SpaceManIcon"
-            case (false, true):
-                iconResourceName = spacemanStyle == .text ? "NamedFullInactive" : "SpaceManIconFullDis"
-            default:
-                iconResourceName = "SpaceManIconBorder"
+    private var effectiveIconSize: IconSize { sizeOverride ?? iconSize }
+
+    public func getIcon(for spaces: [Space], appearance: NSAppearance? = nil,
+                        sizeOverride: IconSize? = nil) -> NSImage {
+        self.sizeOverride = sizeOverride
+        defer { self.sizeOverride = nil }
+        sizes = rowLayout.isTwoRows
+            ? Constants.nearestTwoRowSize(for: effectiveIconSize)
+            : Constants.sizes[effectiveIconSize]
+
+        // In two-row mode, reduce vertical padding if the icon would
+        // overflow the actual menu bar height. The available height is
+        // computed from the screen geometry, not NSStatusBar.system.thickness
+        // (which has been observed to report 22pt even when more space is
+        // available, e.g. 25pt on a 13" and 31pt on a 16" MacBook Pro).
+        if rowLayout.isTwoRows, let screen = NSScreen.main {
+            let available = screen.frame.maxY - screen.visibleFrame.maxY
+            let fontSize = CGFloat(sizes.fontSize)
+            let totalHeight = 2 * (fontSize + 2 * sizes.verticalPadding)
+                + sizes.gapHeightRows
+            if totalHeight > available {
+                let excess = totalHeight - available
+                sizes.verticalPadding = max(0, sizes.verticalPadding - excess / 4)
             }
-
-            icons.append(NSImage(imageLiteralResourceName: iconResourceName))
         }
 
-        switch spacemanStyle {
+        let allNoDecoration = decorationActive.isNoDecoration && decorationInactive.isNoDecoration
+        let actualFontSize = CGFloat(sizes.fontSize) + (allNoDecoration ? 2 : 0)
+        gapWidth = allNoDecoration ? 0 : CGFloat(sizes.gapWidthSpaces)
+        displayGapWidth = allNoDecoration ? 0 : CGFloat(sizes.gapWidthDisplays)
+        cellSize = NSSize(
+            width: 0,
+            height: actualFontSize + sizes.verticalPadding * 2)
+
+        let switchIndexBySpaceID = Space.buildSwitchIndexMap(for: spaces)
+
+        // Determine which spaces to include based on mode
+        let filteredSpaces = filterSpaces(spaces)
+        spaceTotals = visibleSpacesMode == .currentOverTotal ? Self.computeSpaceTotals(
+            for: spaces, perDisplay: restartNumberingByDisplay) : [:]
+
+        // Gracefully handle transient empty state (e.g., during Mission Control updates)
+        if filteredSpaces.isEmpty {
+            iconWidths = []
+            let empty = NSImage(size: NSSize(width: 1, height: cellSize.height))
+            empty.isTemplate = true
+            return empty
+        }
+
+        // For uniform icon widths: find the widest text and use it as the minimum width for all icons.
+        // In single-row mode, this only applies to name-based styles (names, numbers+names).
+        // In two-row mode, numbers-only also gets equalized — without it, "1" and "10" would have
+        // visibly different widths, making the two-row grid look uneven.
+        let showsNames = iconText == .names || iconText == .numbersAndNames
+        let maxNameChars = rowLayout.isTwoRows ? 8 : 4
+        let equalizeNumbers = rowLayout.isTwoRows && iconText == .numbers
+        if !useVariableWidth && (showsNames || equalizeNumbers) {
+            let measureAttrs = getStringAttributes(alpha: 1, color: .black)
+            let padding = sizes.horizontalPadding * 2
+            minIconWidth = filteredSpaces.filter { !$0.isFullScreen }.reduce(CGFloat.zero) { widest, space in
+                // Build the same text string that createSpaceIcon() will render,
+                // so the width measurement matches the actual content.
+                let text: NSString
+                if equalizeNumbers {
+                    text = NSString(string: space.spaceLabel)
+                } else if iconText == .numbersAndNames {
+                    let cappedName = String(space.spaceName.prefix(min(maxNameChars, Constants.maxSpaceNameLength)))
+                    text = NSString(string: "\(space.spaceLabel):\(cappedName)")
+                } else {
+                    text = NSString(
+                        string: String(space.spaceName.prefix(min(maxNameChars, Constants.maxSpaceNameLength)))
+                    )
+                }
+                let textWidth = text.size(withAttributes: measureAttrs).width
+                return max(widest, textWidth + padding)
+            }
+        } else {
+            minIconWidth = 0
+        }
+
+        // Pre-scan for mixed color context: when some spaces have custom colors,
+        // non-colored spaces get a default color instead of template mode
+        let hasAnyColoredSpace = filteredSpaces.contains { $0.colorHex != nil }
+        let defaultColor: NSColor? = hasAnyColoredSpace ? getDefaultColorForAppearance(appearance) : nil
+
+        // Create icons using unified box rendering
+        let icons = filteredSpaces.map { space in
+            createSpaceIcon(space: space, defaultColor: defaultColor)
+        }
+
+        // Nav icons use the current cellSize (matching one row height in two-row mode)
+        let navIcons = createNavigationIcons(defaultColor: defaultColor)
+        let iconsWithDisplayProperties = getIconsWithDisplayProps(icons: icons, spaces: filteredSpaces)
+        if rowLayout.isTwoRows {
+            return mergeIconsTwoRows(iconsWithDisplayProperties, indexMap: switchIndexBySpaceID,
+                                        spaces: filteredSpaces, defaultColor: defaultColor,
+                                        navIcons: navIcons)
+        } else {
+            return mergeIcons(iconsWithDisplayProperties, indexMap: switchIndexBySpaceID,
+                              navIcons: navIcons)
+        }
+    }
+
+    private func filterSpaces(_ spaces: [Space]) -> [Space] {
+        var result = spaceFilter.filter(spaces, mode: visibleSpacesMode, neighborRadius: neighborRadius)
+        if !showFullscreenSpaces {
+            result = result.filter { !$0.isFullScreen }
+        }
+        return result
+    }
+
+    /// For the "current / total" mode: how many spaces each space is counted
+    /// against. Desktops are counted separately from fullscreen spaces, matching
+    /// the `spaceLabel` numbering ("3" vs "F1"). With `perDisplay`, the count
+    /// restarts for every display, matching "Restart numbering by display".
+    static func computeSpaceTotals(for spaces: [Space], perDisplay: Bool) -> [String: Int] {
+        var totals: [String: Int] = [:]
+        var counts: [String: Int] = [:]
+        for space in spaces {
+            let group = (perDisplay ? space.displayID : "") + (space.isFullScreen ? "|F" : "|D")
+            counts[group, default: 0] += 1
+        }
+        for space in spaces {
+            let group = (perDisplay ? space.displayID : "") + (space.isFullScreen ? "|F" : "|D")
+            totals[space.spaceID] = counts[group]
+        }
+        return totals
+    }
+
+    /// The label shown in an icon: "3", or "3/6" in the "current / total" mode.
+    private func numberLabel(for space: Space) -> String {
+        if let total = spaceTotals[space.spaceID] {
+            return "\(space.spaceLabel)/\(total)"
+        }
+        return space.spaceLabel
+    }
+
+    // MARK: - Unified box rendering
+
+    private func createSpaceIcon(space: Space, defaultColor: NSColor?, minWidth: CGFloat = 0) -> NSImage {
+        // 1. Determine text content based on display style
+        let text: NSString
+        switch iconText {
+        case .noText:
+            text = NSString(string: spaceTotals.isEmpty ? "" : numberLabel(for: space))
         case .numbers:
-            icons = createNumberedIcons(spaces)
-        case .numbersAndRects:
-            icons = createRectWithNumbersIcons(icons, spaces, desktopsOnly: false)
-        case .desktopNumbersAndRects:
-            icons = createRectWithNumbersIcons(icons, spaces, desktopsOnly: true)
-        case .text:
-            iconSize.width = 49
-            icons = createNamedIcons(icons, spaces)
-        default:
-            break
+            text = NSString(string: numberLabel(for: space))
+        case .names:
+            let name = String(space.spaceName.prefix(Constants.maxSpaceNameLength))
+            text = NSString(string: spaceTotals.isEmpty ? name : "\(numberLabel(for: space)):\(name)")
+        case .numbersAndNames:
+            let name = String(space.spaceName.prefix(Constants.maxSpaceNameLength))
+            text = NSString(string: "\(numberLabel(for: space)):\(name)")
         }
 
-        let iconsWithDisplayProperties = getIconsWithDisplayProps(icons: icons, spaces: spaces)
-        return mergeIcons(iconsWithDisplayProperties)
+        // 2. Determine box color and template mode
+        let boxColor: NSColor
+        let useTemplate: Bool
+        if let colorHex = space.colorHex, let customColor = NSColor.fromHex(colorHex) {
+            boxColor = customColor
+            useTemplate = false
+        } else if let defaultColor = defaultColor {
+            boxColor = defaultColor
+            useTemplate = false
+        } else {
+            boxColor = .black
+            useTemplate = true
+        }
+
+        // 3. Determine decoration for this space
+        let isActive = space.isCurrentSpace
+        let baseIconStyle = isActive ? decorationActive : decorationInactive
+        let decoration = space.isFullScreen ? baseIconStyle.fullscreenVariant : baseIconStyle
+        let shouldDim = !isActive && decorationActive == decorationInactive
+        let alpha: CGFloat = shouldDim ? Constants.inactiveAlpha : 1.0
+
+        // 4. Calculate icon size (dynamic width based on text)
+        let measureAttrs = getStringAttributes(alpha: 1, color: .black)
+        let monoCharWidth = ("0" as NSString).size(withAttributes: measureAttrs).width
+        // Reduce padding when all icons are undecorated (no borders or fills).
+        // This must apply globally to avoid horizontal shifting between icons.
+        let allUndecorated = decorationActive.isNoDecoration && decorationInactive.isNoDecoration
+        let padding = sizes.horizontalPadding * (allUndecorated ? 1.5 : 2)
+
+        let contentWidth = text.length > 0
+            ? text.size(withAttributes: measureAttrs).width
+            : monoCharWidth
+
+        var iconWidth = contentWidth + padding
+
+        if minIconWidth > 0 && !space.spaceID.hasPrefix("nav-") {
+            iconWidth = max(iconWidth, minIconWidth)
+        }
+        if minWidth > 0 {
+            iconWidth = max(iconWidth, minWidth)
+        }
+
+        let fontWeight: NSFont.Weight = !isActive && rowLayout.isTwoRows ? .medium : .bold
+        let size = NSSize(width: iconWidth, height: cellSize.height)
+        return renderIcon(
+            text: text, size: size, decoration: decoration,
+            boxColor: boxColor, useTemplate: useTemplate,
+            alpha: alpha, borderWidth: sizes.borderWidth,
+            fontWeight: fontWeight)
     }
 
-    private func createNumberedIcons(_ spaces: [Space]) -> [NSImage] {
-        var newIcons = [NSImage]()
+    /// Create an icon for use in the dropdown menu (StatusBar).
+    /// Always uses medium layout sizing but mirrors the active icon style.
+    public func createMenuItemIcon(space: Space, fraction: CGFloat = 0.6) -> NSImage {
+        guard let menuSizes = Constants.sizes[.medium] else { return NSImage() }
+        let menuFontSize = CGFloat(menuSizes.fontSize)
+        let menuHeight = menuFontSize + menuSizes.verticalPadding * 2
 
-        for space in spaces {
-            let textRect = NSRect(origin: CGPoint.zero, size: iconSize)
-            let spaceNumber = NSString(string: String(space.spaceNumber))
-            let image = NSImage(size: iconSize)
+        let decoration = space.isFullScreen ? decorationActive.fullscreenVariant : decorationActive
 
-            image.lockFocus()
-            spaceNumber.drawVerticallyCentered(
-                in: textRect,
-                withAttributes: getStringAttributes(
-                    alpha: !space.isCurrentSpace ? 0.4 : 1,
-                    fontSize: 12))
-            image.unlockFocus()
-
-            newIcons.append(image)
+        let boxColor: NSColor
+        let useTemplate: Bool
+        if let colorHex = space.colorHex, let customColor = NSColor.fromHex(colorHex) {
+            boxColor = customColor
+            useTemplate = false
+        } else {
+            boxColor = .black
+            useTemplate = true
         }
 
-        return newIcons
+        let text = NSString(string: space.spaceLabel)
+        let measureAttrs = getStringAttributes(alpha: 1, fontSize: menuFontSize, color: .black)
+        let dynamicWidth = text.size(withAttributes: measureAttrs).width + menuSizes.horizontalPadding * 2
+        let size = NSSize(width: dynamicWidth, height: menuHeight)
+
+        return renderIcon(
+            text: text, size: size, decoration: decoration,
+            boxColor: boxColor, useTemplate: useTemplate,
+            alpha: fraction, borderWidth: menuSizes.borderWidth,
+            fontSize: menuFontSize)
     }
 
-    /// One icon per display showing "current/total" (e.g. "1/6") instead of every space.
-    private func createCompactIcons(_ spaces: [Space]) -> [(NSImage, Bool)] {
-        let total = spaces.count
-        var labelsPerDisplay = [String]()
-        var seenDisplays = Set<String>()
+    // MARK: - Icon rendering
 
-        for space in spaces where !seenDisplays.contains(space.displayID) {
-            seenDisplays.insert(space.displayID)
-            let current = spaces.first { $0.displayID == space.displayID && $0.isCurrentSpace } ?? space
-            labelsPerDisplay.append("\(current.spaceNumber)/\(total)")
-        }
+    // All parameters are distinct, required values for one rendering operation.
+    // A wrapper struct would add boilerplate without improving readability.
+    // swiftlint:disable:next function_parameter_count
+    private func renderIcon(
+        text: NSString,
+        size: NSSize,
+        decoration: IconStyle,
+        boxColor: NSColor,
+        useTemplate: Bool,
+        alpha: CGFloat,
+        borderWidth: CGFloat,
+        fontSize: CGFloat = .zero,
+        fontWeight: NSFont.Weight = .bold
+    ) -> NSImage {
+        let iconImage = NSImage(size: size)
+        let drawRect = NSRect(origin: .zero, size: size)
 
-        let attributes = getStringAttributes(alpha: 1, fontSize: 12)
-        let maxTextWidth = labelsPerDisplay
-            .map { NSString(string: $0).size(withAttributes: attributes).width }
-            .max() ?? iconSize.width
-        iconSize.width = ceil(maxTextWidth) + 2
-        displayCount = labelsPerDisplay.count
+        iconImage.lockFocus()
 
-        var iconsWithDisplayProperties = [(NSImage, Bool)]()
-        for (index, label) in labelsPerDisplay.enumerated() {
-            let textRect = NSRect(origin: CGPoint.zero, size: iconSize)
-            let image = NSImage(size: iconSize)
+        if decoration.isNoDecoration {
+            let textColor = useTemplate ? NSColor.black : boxColor
+            text.drawVerticallyCentered(
+                in: drawRect,
+                withAttributes: getStringAttributes(alpha: alpha, fontSize: fontSize, color: textColor,
+                                                    weight: fontWeight))
+        } else if decoration.isFilled {
+            let boxRect = drawRect.insetBy(dx: borderWidth / 2, dy: borderWidth / 2)
+            let cornerRadius = decoration.cornerRadius(for: boxRect)
+            let boxPath = NSBezierPath(roundedRect: boxRect, xRadius: cornerRadius, yRadius: cornerRadius)
 
-            image.lockFocus()
-            NSString(string: label).drawVerticallyCentered(in: textRect, withAttributes: attributes)
-            image.unlockFocus()
+            if useTemplate {
+                NSColor.black.withAlphaComponent(alpha).setFill()
+                boxPath.fill()
 
-            let isLast = index == labelsPerDisplay.count - 1
-            iconsWithDisplayProperties.append((image, !isLast))
-        }
+                if text.length > 0 {
+                    let textImage = NSImage(size: size)
+                    textImage.lockFocus()
+                    text.drawVerticallyCentered(
+                        in: drawRect,
+                        withAttributes: getStringAttributes(alpha: 1, fontSize: fontSize, color: .black,
+                                                            weight: fontWeight))
+                    textImage.unlockFocus()
 
-        return iconsWithDisplayProperties
-    }
+                    textImage.draw(in: drawRect, from: .zero, operation: .destinationOut, fraction: 1.0)
+                }
+            } else {
+                let effectiveAlpha = boxColor.alphaComponent * alpha
+                boxColor.withAlphaComponent(effectiveAlpha).setFill()
+                boxPath.fill()
 
-    private func createRectWithNumbersIcons(_ icons: [NSImage], _ spaces: [Space], desktopsOnly: Bool) -> [NSImage] {
-        var index = 0
-        var newIcons = [NSImage]()
-
-        for space in spaces {
-            let textRect = NSRect(origin: CGPoint.zero, size: iconSize)
-            let number = desktopsOnly ? space.desktopNumber : space.spaceNumber
-            let iconImage = NSImage(size: iconSize)
-            let numberImage = NSImage(size: iconSize)
-
-            if let number {
-                numberImage.lockFocus()
-                let spaceNumber = NSString(string: String(number))
-                spaceNumber.drawVerticallyCentered(
-                    in: textRect,
-                    withAttributes: getStringAttributes(alpha: 1))
-                numberImage.unlockFocus()
+                if text.length > 0 {
+                    let textColor = getContrastingTextColor(for: boxColor)
+                    text.drawVerticallyCentered(
+                        in: drawRect,
+                        withAttributes: getStringAttributes(alpha: 1.0, fontSize: fontSize, color: textColor,
+                                                            weight: fontWeight))
+                }
             }
+        } else {
+            // Bordered: outline + text (no fill)
+            let boxRect = drawRect.insetBy(dx: borderWidth / 2, dy: borderWidth / 2)
+            let cornerRadius = decoration.cornerRadius(for: boxRect)
+            let boxPath = NSBezierPath(roundedRect: boxRect, xRadius: cornerRadius, yRadius: cornerRadius)
+            boxPath.lineWidth = borderWidth
 
-            iconImage.lockFocus()
-            icons[index].draw(
-                in: textRect,
-                from: NSRect.zero,
-                operation: NSCompositingOperation.sourceOver,
-                fraction: 1.0)
-            numberImage.draw(
-                in: textRect,
-                from: NSRect.zero,
-                operation: NSCompositingOperation.destinationOut,
-                fraction: 1.0)
-            iconImage.isTemplate = true
-            iconImage.unlockFocus()
+            if useTemplate {
+                NSColor.black.withAlphaComponent(alpha).setStroke()
+                boxPath.stroke()
 
-            newIcons.append(iconImage)
-            index += 1
+                if text.length > 0 {
+                    text.drawVerticallyCentered(
+                        in: drawRect,
+                        withAttributes: getStringAttributes(alpha: alpha, fontSize: fontSize, color: .black,
+                                                            weight: fontWeight))
+                }
+            } else {
+                boxColor.withAlphaComponent(alpha).setStroke()
+                boxPath.stroke()
+
+                if text.length > 0 {
+                    text.drawVerticallyCentered(
+                        in: drawRect,
+                        withAttributes: getStringAttributes(alpha: alpha, fontSize: fontSize, color: boxColor,
+                                                            weight: fontWeight))
+                }
+            }
         }
 
-        return newIcons
+        iconImage.isTemplate = useTemplate
+        iconImage.unlockFocus()
+
+        return iconImage
     }
 
-    private func createNamedIcons(_ icons: [NSImage], _ spaces: [Space]) -> [NSImage] {
-        var index = 0
-        var newIcons = [NSImage]()
+    // MARK: - Navigation icons (arrows + Mission Control)
 
-        for space in spaces {
-            let textRect = NSRect(origin: CGPoint.zero, size: iconSize)
-            let spaceText = NSString(string: "\(space.spaceNumber): \(space.spaceName.uppercased())")
-            let iconImage = NSImage(size: iconSize)
-            let textImage = NSImage(size: iconSize)
+    private func makeNavSpace(label: String) -> Space {
+        Space(displayID: "", spaceID: "nav-\(label)", spaceName: label,
+              spaceNumber: 0, spaceLabel: label,
+              isCurrentSpace: false, isFullScreen: false)
+    }
 
-            textImage.lockFocus()
-            spaceText.drawVerticallyCentered(
-                in: textRect,
-                withAttributes: getStringAttributes(alpha: 1))
-            textImage.unlockFocus()
+    /// Mission Control icon: square box with two small rects left, one tall rect right.
+    /// Reuses createSpaceIcon for the decoration box, then composites the symbol on top.
+    private func createMissionControlIcon(defaultColor: NSColor?, minWidth: CGFloat = 0) -> NSImage {
+        let height = cellSize.height
+        let padding = rowLayout.isTwoRows ? sizes.horizontalPadding * 1.5 : 0
+        let boxWidth = max(height + padding, minWidth)
+        let box = createSpaceIcon(space: makeNavSpace(label: " "), defaultColor: defaultColor, minWidth: boxWidth)
+        let size = box.size
+        let inset = height * 0.25
+        let gap: CGFloat = 1.25
+        let innerW = height - inset * 2
+        let rightW = (innerW - gap) / 2
+        let leftW = (innerW - gap) / 1.8
+        let squareOriginX = (size.width - 2 * inset - leftW - rightW) / 2  // center the staggered symbol horizontally
+        let inner = NSRect(x: squareOriginX + inset, y: inset, width: innerW, height: height - inset * 2)
+        let smallH = (inner.height - gap) / 2
 
-            iconImage.lockFocus()
-            icons[index].draw(
-                in: textRect,
-                from: NSRect.zero,
-                operation: NSCompositingOperation.sourceOver,
-                fraction: 1.0)
-            textImage.draw(
-                in: textRect,
-                from: NSRect.zero,
-                operation: NSCompositingOperation.destinationOut,
-                fraction: 1.0)
-            iconImage.isTemplate = true
-            iconImage.unlockFocus()
-
-            newIcons.append(iconImage)
-            index += 1
+        let shouldDim = decorationActive == decorationInactive
+        let alpha: CGFloat = shouldDim ? Constants.inactiveAlpha : 1.0
+        let symbolColor: NSColor
+        if box.isTemplate {
+            // Template mode: macOS handles color inversion; alpha for dimming
+            symbolColor = NSColor.black.withAlphaComponent(alpha)
+        } else if decorationInactive.isFilled {
+            // Filled + colored: text at full opacity (same as renderIcon line 270)
+            symbolColor = getContrastingTextColor(for: defaultColor ?? .black)
+        } else {
+            // Bordered + colored: text matches border, dimmed
+            symbolColor = (defaultColor ?? .black).withAlphaComponent(alpha)
         }
 
-        return newIcons
+        let symbol = NSImage(size: size)
+        symbol.lockFocus()
+        symbolColor.setFill()
+        let shift: CGFloat = gap
+        // Top-left small rect (shifted left)
+        NSBezierPath(
+            roundedRect: NSRect(
+                x: inner.minX - shift,
+                y: inner.minY + smallH + gap,
+                width: leftW,
+                height: smallH
+            ),
+            xRadius: 0.5,
+            yRadius: 0.5
+        ).fill()
+        // Bottom-left small rect (original position)
+        NSBezierPath(
+            roundedRect: NSRect(
+                x: inner.minX,
+                y: inner.minY,
+                width: leftW,
+                height: smallH
+            ),
+            xRadius: 0.5,
+            yRadius: 0.5
+        ).fill()
+        // Right tall rect (cropped at the bottom)
+        NSBezierPath(
+            roundedRect: NSRect(
+                x: inner.minX + leftW + gap,
+                y: inner.minY + shift,
+                width: rightW,
+                height: inner.height - shift
+            ),
+            xRadius: 0.5,
+            yRadius: 0.5
+        ).fill()
+        symbol.unlockFocus()
+
+        box.lockFocus()
+        let compositing: NSCompositingOperation =
+            (decorationInactive.isFilled && box.isTemplate) ? .destinationOut : .sourceOver
+        symbol.draw(in: NSRect(origin: .zero, size: size), from: .zero, operation: compositing, fraction: 1.0)
+        box.unlockFocus()
+        return box
     }
 
-    func getIconsWithDisplayProps(icons: [NSImage], spaces: [Space]) -> [(NSImage, Bool)] {
-        var iconsWithDisplayProperties = [(NSImage, Bool)]()
+    /// Returns navigation icons based on the current settings.
+    private func createNavigationIcons(defaultColor: NSColor?) -> [(image: NSImage, index: Int)] {
+        var result: [(image: NSImage, index: Int)] = []
+        var arrowIcon: NSImage?
+        if showNavArrows {
+            let left = createSpaceIcon(space: makeNavSpace(label: "◀"), defaultColor: defaultColor)
+            arrowIcon = left
+            result.append((left, Space.previousSpaceIndex))
+        }
+        if showMissionControl {
+            let mcMinWidth: CGFloat
+            if rowLayout.isTwoRows, let arrowWidth = arrowIcon?.size.width {
+                // In two-row mode: MC spans the full width of both arrows + gap
+                mcMinWidth = arrowWidth * 2 + gapWidth
+            } else if !useVariableWidth, let arrowWidth = arrowIcon?.size.width {
+                mcMinWidth = arrowWidth
+            } else {
+                mcMinWidth = 0
+            }
+            result.append((createMissionControlIcon(defaultColor: defaultColor, minWidth: mcMinWidth),
+                Space.missionControlIndex))
+        }
+        if showNavArrows {
+            result.append((createSpaceIcon(
+                space: makeNavSpace(label: "▶"), defaultColor: defaultColor),
+                Space.nextSpaceIndex))
+        }
+        return result
+    }
+
+    /// Draw navigation icons and append their hit-test entries.
+    /// Call within a lockFocus context. Returns the updated left position.
+    private func drawNavIcons(
+        _ navIcons: [(image: NSImage, index: Int)],
+        at y: CGFloat,
+        left: CGFloat
+    ) -> CGFloat {
+        var left = left
+        for (idx, nav) in navIcons.enumerated() {
+            nav.image.draw(
+                at: NSPoint(x: left, y: y),
+                from: .zero,
+                operation: .sourceOver,
+                fraction: 1.0)
+            let isLast = idx == navIcons.count - 1
+            let gap = isLast ? displayGapWidth : gapWidth
+            let iconLeft = left - (gap / 2.0)
+            let iconRight = left + nav.image.size.width + (gap / 2.0)
+            // Nav icons use no vertical bounds (Y ignored in hit testing)
+            iconWidths.append(IconWidth(
+                left: iconLeft,
+                right: iconRight,
+                index: nav.index
+            ))
+            left += nav.image.size.width + gap
+        }
+        return left
+    }
+
+    // MARK: - Display properties and merging
+
+    private func getIconsWithDisplayProps(
+        icons: [NSImage],
+        spaces: [Space]
+    ) -> [SpaceIconInfo] {
+        var iconsWithDisplayProperties = [SpaceIconInfo]()
+        guard !spaces.isEmpty else { return iconsWithDisplayProperties }
         var currentDisplayID = spaces[0].displayID
         displayCount = 1
 
         for index in 0 ..< spaces.count {
             var nextSpaceIsOnDifferentDisplay = false
-
             if index + 1 < spaces.count {
-                let thisDispID = spaces[index + 1].displayID
-                if thisDispID != currentDisplayID {
-                    currentDisplayID = thisDispID
+                let nextDisplayID = spaces[index + 1].displayID
+                if nextDisplayID != currentDisplayID {
+                    currentDisplayID = nextDisplayID
                     displayCount += 1
                     nextSpaceIsOnDifferentDisplay = true
                 }
             }
-
-            iconsWithDisplayProperties.append((icons[index], nextSpaceIsOnDifferentDisplay))
+            iconsWithDisplayProperties.append(SpaceIconInfo(
+                image: icons[index],
+                nextSpaceOnDifferentDisplay: nextSpaceIsOnDifferentDisplay,
+                isFullScreen: spaces[index].isFullScreen,
+                spaceID: spaces[index].spaceID,
+                colorHex: spaces[index].colorHex,
+                spaceNumber: spaces[index].spaceNumber
+            ))
         }
 
         return iconsWithDisplayProperties
     }
 
-    func mergeIcons(_ iconsWithDisplayProperties: [(image: NSImage, nextSpaceOnDifferentDisplay: Bool)]) -> NSImage {
+    private func mergeIcons(
+        _ iconsWithDisplayProperties: [SpaceIconInfo],
+        indexMap: [String: Int],
+        navIcons: [(image: NSImage, index: Int)]
+    ) -> NSImage {
         let numIcons = iconsWithDisplayProperties.count
-        let combinedIconWidth = CGFloat(numIcons) * iconSize.width
-        let accomodatingGapWidth = CGFloat(numIcons - 1) * gapWidth
-        let accomodatingDisplayGapWidth = CGFloat(displayCount - 1) * displayGapWidth
-        let totalWidth = combinedIconWidth + accomodatingGapWidth + accomodatingDisplayGapWidth
-        let image = NSImage(size: NSSize(width: totalWidth, height: iconSize.height))
+        let combinedIconWidth = CGFloat(iconsWithDisplayProperties.reduce(0) { (result, icon) in
+            result + icon.image.size.width
+        })
+        let accomodatingGapWidth = CGFloat(max(0, numIcons - 1)) * gapWidth
+        let accomodatingDisplayGapWidth = CGFloat(max(0, displayCount - 1)) * displayGapWidth
+        let navWidth = navIcons.reduce(CGFloat(0)) { $0 + $1.image.size.width }
+        let navGaps = navIcons.isEmpty ? 0 : CGFloat(max(0, navIcons.count - 1)) * gapWidth + displayGapWidth
+        let totalIconWidth = navWidth + navGaps + combinedIconWidth + accomodatingGapWidth + accomodatingDisplayGapWidth
+        let totalWidth = max(1, totalIconWidth)
+        let image = NSImage(size: NSSize(width: totalWidth, height: cellSize.height))
 
         image.lockFocus()
-        var xOffset = CGFloat.zero
+        var left = CGFloat.zero
+        iconWidths = []
+
+        let hasAnyColoredIcon = iconsWithDisplayProperties.contains { $0.colorHex != nil }
+
+        left = drawNavIcons(navIcons, at: 0, left: left)
+
+        // Draw space icons
+        var right: CGFloat
         for icon in iconsWithDisplayProperties {
             icon.image.draw(
-                at: NSPoint(x: xOffset, y: 0),
+                at: NSPoint(x: left, y: 0),
                 from: NSRect.zero,
                 operation: NSCompositingOperation.sourceOver,
                 fraction: 1.0)
-            if icon.nextSpaceOnDifferentDisplay {
-                xOffset += iconSize.width + displayGapWidth
-            } else {
-                xOffset += iconSize.width + gapWidth
-            }
+            // Simple gap splitting: each icon owns half the gap on each side
+            let gap = icon.nextSpaceOnDifferentDisplay ? displayGapWidth : gapWidth
+            let iconLeft = left - (gap / 2.0)
+            let iconRight = left + icon.image.size.width + (gap / 2.0)
+
+            // Calculate total width including full gap for positioning next icon
+            right = left + icon.image.size.width + gap
+
+            let targetIndex = indexMap[icon.spaceID] ?? Space.unswitchableIndex
+            iconWidths.append(IconWidth(
+                left: iconLeft,
+                right: iconRight,
+                index: targetIndex,
+                spaceNumber: icon.spaceNumber
+            ))
+            left = right
         }
-        image.isTemplate = true
+        // Only use template mode if no icons have custom colors
+        image.isTemplate = !hasAnyColoredIcon
         image.unlockFocus()
 
         return image
     }
 
-    private func getStringAttributes(alpha: CGFloat, fontSize: CGFloat = 10) -> [NSAttributedString.Key: Any] {
+    /// A stacked pair (top/bottom) of icons and its rendered width and trailing gap.
+    private struct Column {
+        var top: (image: NSImage, isFull: Bool, tag: Int, spaceID: String, colorHex: String?,
+                  spaceNumber: Int)?
+        var bottom: (image: NSImage, isFull: Bool, tag: Int, spaceID: String, colorHex: String?,
+                     spaceNumber: Int)?
+        var width: CGFloat = 0
+        var gapAfter: CGFloat = 0
+    }
+
+    /// Build columns by filling top then bottom per column (by-column layout).
+    private func buildColumnsByColumn(
+        _ icons: [SpaceIconInfo], assignedIndices: [Int]
+    ) -> [Column] {
+        var columns: [Column] = []
+        var current = Column()
+        var placeTop = true
+        for (idx, icon) in icons.enumerated() {
+            let tag = assignedIndices[idx]
+            if placeTop {
+                current.top = (
+                    icon.image, icon.isFullScreen,
+                    tag, icon.spaceID, icon.colorHex,
+                    icon.spaceNumber
+                )
+                current.width = max(current.width, icon.image.size.width)
+                placeTop = false
+            } else {
+                current.bottom = (
+                    icon.image, icon.isFullScreen,
+                    tag, icon.spaceID, icon.colorHex,
+                    icon.spaceNumber
+                )
+                current.width = max(current.width, icon.image.size.width)
+                placeTop = true
+            }
+            let isColumnEnd = placeTop || icon.nextSpaceOnDifferentDisplay
+            if isColumnEnd {
+                current.gapAfter = icon.nextSpaceOnDifferentDisplay
+                    ? displayGapWidth : gapWidth
+                columns.append(current)
+                current = Column()
+                placeTop = true
+            }
+            let isLast = idx == icons.count - 1
+            if isLast && (current.top != nil || current.bottom != nil) {
+                current.gapAfter = 0
+                columns.append(current)
+            }
+        }
+        return columns
+    }
+
+    /// Build columns by filling entire top row left-to-right, then bottom row (by-row layout).
+    private func buildColumnsByRow(
+        _ icons: [SpaceIconInfo], assignedIndices: [Int]
+    ) -> [Column] {
+        typealias Segment = (
+            image: NSImage, nextDisplay: Bool, isFull: Bool,
+            tag: Int, spaceID: String, colorHex: String?,
+            spaceNumber: Int
+        )
+        // Segment by display to place display gaps correctly
+        var segments: [[Segment]] = []
+        var cur: [Segment] = []
+        for (idx, icon) in icons.enumerated() {
+            cur.append((
+                icon.image, icon.nextSpaceOnDifferentDisplay,
+                icon.isFullScreen, assignedIndices[idx],
+                icon.spaceID, icon.colorHex,
+                icon.spaceNumber
+            ))
+            if icon.nextSpaceOnDifferentDisplay { segments.append(cur); cur = [] }
+        }
+        if !cur.isEmpty { segments.append(cur) }
+
+        var columns: [Column] = []
+        for (segIdx, seg) in segments.enumerated() {
+            let count = seg.count
+            let topCount = Int(ceil(Double(count) / 2.0))
+            let top = Array(seg.prefix(topCount))
+            let bottom = Array(seg.dropFirst(topCount))
+            let maxLen = max(top.count, bottom.count)
+            for i in 0..<maxLen {
+                var col = Column()
+                if i < top.count {
+                    let topItem = top[i]
+                    col.top = (
+                        topItem.image,
+                        topItem.isFull,
+                        topItem.tag,
+                        topItem.spaceID,
+                        topItem.colorHex,
+                        topItem.spaceNumber
+                    )
+                    col.width = max(col.width, topItem.image.size.width)
+                }
+                if i < bottom.count {
+                    let bottomItem = bottom[i]
+                    col.bottom = (
+                        bottomItem.image, bottomItem.isFull,
+                        bottomItem.tag, bottomItem.spaceID,
+                        bottomItem.colorHex, bottomItem.spaceNumber
+                    )
+                    col.width = max(col.width, bottomItem.image.size.width)
+                }
+                // Add inter-column gap. After the last column of a display,
+                // add display gap (except trailing overall)
+                let isLastInSegment = (i == maxLen - 1)
+                col.gapAfter = isLastInSegment ? displayGapWidth : gapWidth
+                columns.append(col)
+            }
+            // Avoid display gap after final segment
+            if segIdx == segments.count - 1, var last = columns.popLast() {
+                last.gapAfter = 0
+                columns.append(last)
+            }
+        }
+        return columns
+    }
+
+    /// Re-render the narrower icon in each column at the full column width.
+    private func equalizeColumnWidths(
+        _ columns: inout [Column], spaces: [Space], defaultColor: NSColor?
+    ) {
+        let spacesByID = Dictionary(
+            spaces.map { ($0.spaceID, $0) }, uniquingKeysWith: { first, _ in first })
+        for i in 0..<columns.count {
+            let colWidth = columns[i].width
+            if let top = columns[i].top, top.image.size.width < colWidth,
+               let space = spacesByID[top.spaceID] {
+                let newImage = createSpaceIcon(space: space, defaultColor: defaultColor, minWidth: colWidth)
+                columns[i].top = (newImage, top.isFull, top.tag, top.spaceID, top.colorHex, top.spaceNumber)
+            }
+            if let bottom = columns[i].bottom, bottom.image.size.width < colWidth,
+               let space = spacesByID[bottom.spaceID] {
+                let newImage = createSpaceIcon(space: space, defaultColor: defaultColor, minWidth: colWidth)
+                columns[i].bottom = (
+                    newImage, bottom.isFull, bottom.tag, bottom.spaceID,
+                    bottom.colorHex, bottom.spaceNumber
+                )
+            }
+        }
+    }
+
+    private func mergeIconsTwoRows(
+        _ iconsWithDisplayProperties: [SpaceIconInfo],
+        indexMap: [String: Int],
+        spaces: [Space],
+        defaultColor: NSColor?,
+        navIcons: [(image: NSImage, index: Int)]
+    ) -> NSImage {
+        let assignedIndices: [Int] = iconsWithDisplayProperties.map {
+            indexMap[$0.spaceID] ?? Space.unswitchableIndex
+        }
+
+        // Build columns depending on fill order preference
+        var columns: [Column]
+        switch rowLayout {
+        case .twoRowsByColumn, .singleRow:
+            columns = buildColumnsByColumn(iconsWithDisplayProperties, assignedIndices: assignedIndices)
+        case .twoRowsByRow:
+            columns = buildColumnsByRow(iconsWithDisplayProperties, assignedIndices: assignedIndices)
+        }
+
+        equalizeColumnWidths(&columns, spaces: spaces, defaultColor: defaultColor)
+
+        // Render
+        let topNavIcons = navIcons.filter { $0.index != Space.missionControlIndex }
+        let bottomNavIcons = navIcons.filter { $0.index == Space.missionControlIndex }
+        let topNavWidth = topNavIcons.reduce(CGFloat(0)) { $0 + $1.image.size.width }
+            + CGFloat(max(0, topNavIcons.count - 1)) * gapWidth
+        let bottomNavWidth = bottomNavIcons.reduce(CGFloat(0)) { $0 + $1.image.size.width }
+        let navColWidth = max(topNavWidth, bottomNavWidth)
+        let navTotal = navIcons.isEmpty ? 0 : navColWidth + displayGapWidth
+        let totalWidth = navTotal + columns.reduce(CGFloat(0)) { $0 + $1.width + $1.gapAfter }
+        let gap = sizes.gapHeightRows
+        let imageHeight = cellSize.height * 2 + gap
+        let image = NSImage(size: NSSize(width: totalWidth, height: imageHeight))
+
+        image.lockFocus()
+        var left = CGFloat.zero
+        iconWidths = []
+
+        let hasAnyColoredIcon = columns.contains { col in
+            (col.top?.colorHex != nil) || (col.bottom?.colorHex != nil)
+        }
+
+        // Draw nav icons: arrows on top row, MC on bottom (or top if no arrows)
+        let midGap = cellSize.height + gap / 2.0
+        if !navIcons.isEmpty {
+            if topNavIcons.isEmpty {
+                // No arrows: MC goes on top row
+                for nav in bottomNavIcons {
+                    nav.image.draw(at: NSPoint(x: left, y: cellSize.height + gap),
+                                   from: .zero, operation: .sourceOver, fraction: 1.0)
+                    iconWidths.append(IconWidth(left: left, right: left + nav.image.size.width,
+                                                index: nav.index))
+                }
+            } else {
+                // Arrows on top row
+                var topLeft = left
+                for (idx, nav) in topNavIcons.enumerated() {
+                    nav.image.draw(at: NSPoint(x: topLeft, y: cellSize.height + gap),
+                                   from: .zero, operation: .sourceOver, fraction: 1.0)
+                    let navGap = idx < topNavIcons.count - 1 ? gapWidth : CGFloat(0)
+                    let iconLeft = topLeft - (navGap / 2.0)
+                    let iconRight = topLeft + nav.image.size.width + (navGap / 2.0)
+                    iconWidths.append(IconWidth(left: iconLeft, right: iconRight,
+                                                top: midGap, bottom: imageHeight * 2, index: nav.index))
+                    topLeft += nav.image.size.width + navGap
+                }
+                // MC on bottom row, centered
+                for nav in bottomNavIcons {
+                    let mcX = left + (navColWidth - nav.image.size.width) / 2.0
+                    nav.image.draw(at: NSPoint(x: mcX, y: 0),
+                                   from: .zero, operation: .sourceOver, fraction: 1.0)
+                    iconWidths.append(IconWidth(left: left, right: left + navColWidth,
+                                                top: -imageHeight, bottom: midGap, index: nav.index))
+                }
+            }
+            left += navColWidth + displayGapWidth
+        }
+
+        // Split vertical hit area at the gap midpoint; extend bounds generously
+        // to cover menu bar padding above/below the image
+
+        for col in columns {
+            // Simple gap splitting: each icon owns half the gap on each side
+            // (col.gapAfter already accounts for display gaps vs regular gaps)
+            let iconLeft = left - (col.gapAfter / 2.0)
+            let iconRight = left + col.width + (col.gapAfter / 2.0)
+
+            if let top = col.top {
+                top.image.draw(
+                    at: NSPoint(x: left, y: cellSize.height + gap),
+                    from: .zero,
+                    operation: .sourceOver,
+                    fraction: 1.0)
+                iconWidths.append(IconWidth(
+                    left: iconLeft,
+                    right: iconRight,
+                    top: midGap,
+                    bottom: imageHeight * 2,
+                    index: top.tag,
+                    spaceNumber: top.spaceNumber))
+            }
+            if let bottom = col.bottom {
+                bottom.image.draw(
+                    at: NSPoint(x: left, y: 0),
+                    from: .zero,
+                    operation: .sourceOver,
+                    fraction: 1.0)
+                iconWidths.append(IconWidth(
+                    left: iconLeft,
+                    right: iconRight,
+                    top: -imageHeight,
+                    bottom: midGap,
+                    index: bottom.tag,
+                    spaceNumber: bottom.spaceNumber))
+            }
+            left += col.width + col.gapAfter
+        }
+        image.isTemplate = !hasAnyColoredIcon
+        image.unlockFocus()
+        return image
+    }
+
+    // MARK: - Text and color helpers
+
+    private func getStringAttributes(
+        alpha: CGFloat,
+        fontSize: CGFloat = .zero,
+        color: NSColor = .black,
+        design: NSFontDescriptor.SystemDesign? = nil,
+        weight: NSFont.Weight = .bold
+    ) -> [NSAttributedString.Key: Any] {
+        let design = design ?? fontDesign.systemDesign
+        let allNoDecoration = decorationActive.isNoDecoration && decorationInactive.isNoDecoration
+        let baseFontSize = CGFloat(sizes.fontSize) + (allNoDecoration ? 2 : 0)
+        let actualFontSize = fontSize == .zero ? baseFontSize : fontSize
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.alignment = .center
+
+        let base = NSFont.systemFont(ofSize: actualFontSize, weight: weight)
+        let font: NSFont
+        if let descriptor = base.fontDescriptor.withDesign(design),
+           let designFont = NSFont(descriptor: descriptor, size: actualFontSize) {
+            font = designFont
+        } else {
+            font = base
+        }
         return [
-            .foregroundColor: NSColor.black.withAlphaComponent(alpha),
-            .font: NSFont.monospacedSystemFont(ofSize: fontSize, weight: .bold),
+            .foregroundColor: color.withAlphaComponent(alpha),
+            .font: font,
             .paragraphStyle: paragraphStyle]
+    }
+
+    private func getDefaultColorForAppearance(_ appearance: NSAppearance? = nil) -> NSColor {
+        // Use the provided appearance, or fall back to NSApp's appearance
+        let effectiveAppearance = appearance ?? NSApp.effectiveAppearance
+        let appearanceName = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua])
+
+        if appearanceName == .darkAqua {
+            // Dark mode: use white/light gray for contrast
+            return NSColor.white
+        } else {
+            // Light mode: use black/dark gray for contrast
+            return NSColor.black
+        }
+    }
+
+    private func getContrastingTextColor(for backgroundColor: NSColor) -> NSColor {
+        backgroundColor.contrastingTextColor
     }
 }
