@@ -62,12 +62,54 @@ if [[ ! -d "$app_path" ]]; then
 fi
 
 rm -f "$dmg_path"
-hdiutil create \
-  -volname "$app_name" \
-  -srcfolder "$app_path" \
-  -ov \
-  -format UDZO \
-  "$dmg_path" >/dev/null
+
+# Stage the disk image contents: the app plus an Applications link so the
+# user can drag-install. With create-dmg available, also lay the window out
+# with a background picture and volume icon; otherwise fall back to a plain
+# image that still contains the Applications link.
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+dmg_assets_dir="$script_dir/dmg"
+staging_dir="$output_dir/dmg-staging"
+rm -rf "$staging_dir"
+mkdir -p "$staging_dir"
+cp -R "$app_path" "$staging_dir/"
+
+build_plain_dmg() {
+  ln -sfn /Applications "$staging_dir/Applications"
+  hdiutil create \
+    -volname "$app_name" \
+    -srcfolder "$staging_dir" \
+    -ov \
+    -format UDZO \
+    "$dmg_path" >/dev/null
+}
+
+if command -v create-dmg >/dev/null 2>&1 && [[ -f "$dmg_assets_dir/background.png" ]]; then
+  create_dmg_args=(
+    --volname "$app_name"
+    --background "$dmg_assets_dir/background.png"
+    --window-pos 200 120
+    --window-size 640 440
+    --icon-size 128
+    --icon "${app_name}.app" 150 170
+    --hide-extension "${app_name}.app"
+    --app-drop-link 490 170
+    --no-internet-enable
+  )
+  if [[ -f "$dmg_assets_dir/VolumeIcon.icns" ]]; then
+    create_dmg_args+=(--volicon "$dmg_assets_dir/VolumeIcon.icns")
+  fi
+  if ! create-dmg "${create_dmg_args[@]}" "$dmg_path" "$staging_dir"; then
+    echo "warning: create-dmg failed, falling back to a plain disk image" >&2
+    rm -f "$dmg_path"
+    build_plain_dmg
+  fi
+else
+  echo "note: create-dmg not available, building a plain disk image" >&2
+  build_plain_dmg
+fi
+
+rm -rf "$staging_dir"
 
 if [[ -n "${DMG_SIGN_IDENTITY:-}" ]]; then
   codesign --force --timestamp --sign "${DMG_SIGN_IDENTITY}" "$dmg_path"

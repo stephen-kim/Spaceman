@@ -181,6 +181,12 @@ jobs:
 
           echo "RELEASE_OTHER_CODE_SIGN_FLAGS=--keychain $KEYCHAIN_PATH" >> "$GITHUB_ENV"
 
+      - name: Install create-dmg
+        run: |
+          if ! command -v create-dmg >/dev/null 2>&1; then
+            brew install create-dmg
+          fi
+
       - name: Prepare release directory
         run: mkdir -p "$ARTIFACTS_DIR"
 

@@ -6,6 +6,11 @@ The format follows Keep a Changelog and uses semantic version headings.
 
 ## [Unreleased]
 
+### Changed
+- The release DMG now opens as a drag-to-install window: Spaceman.app on the left, an Applications
+  link on the right, with a background picture and volume icon (built with create-dmg; falls back to a
+  plain image with the Applications link when create-dmg is unavailable).
+
 ## [1.1.2] - 2026-11-02
 
 ### Changed
