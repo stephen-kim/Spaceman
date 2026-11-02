@@ -13,6 +13,22 @@ project_path="${PROJECT_PATH:-Spaceman.xcodeproj}"
 xcodebuild -project "$project_path" -resolvePackageDependencies >/dev/null
 
 project_name="$(basename "$project_path" .xcodeproj)"
+
+# Sparkle's SwiftPM package ships prebuilt command line tools. Prefer them:
+# they need no build and work regardless of the Xcode version's minimum
+# deployment target (building Sparkle's tool targets fails on newer Xcodes).
+prebuilt_tool="$(
+  find "$HOME/Library/Developer/Xcode/DerivedData" \
+    -path "*/${project_name}-*/SourcePackages/artifacts/sparkle/Sparkle/bin/${tool_name}" \
+    -type f -perm -u+x -print 2>/dev/null \
+    | head -n 1
+)"
+
+if [[ -n "$prebuilt_tool" ]]; then
+  echo "$prebuilt_tool"
+  exit 0
+fi
+
 sparkle_project="$(
   find "$HOME/Library/Developer/Xcode/DerivedData" \
     -path "*/${project_name}-*/SourcePackages/checkouts/Sparkle/Sparkle.xcodeproj" \
