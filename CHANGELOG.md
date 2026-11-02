@@ -6,6 +6,8 @@ The format follows Keep a Changelog and uses semantic version headings.
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-11-02
+
 ### Fixed
 - The "System Settings…" button on the Accessibility error now triggers the macOS Accessibility prompt, so
   Spaceman is registered in Privacy & Security → Accessibility instead of having to be added by hand.
