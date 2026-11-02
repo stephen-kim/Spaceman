@@ -20,6 +20,10 @@ class IconCreator {
         let spacemanStyle = SpacemanStyle(rawValue: defaults.integer(forKey: "displayStyle"))
         var icons = [NSImage]()
 
+        if spacemanStyle == .compact {
+            return mergeIcons(createCompactIcons(spaces))
+        }
+
         for space in spaces {
             let iconResourceName: String
             switch (space.isCurrentSpace, space.isFullScreen) {
@@ -74,6 +78,41 @@ class IconCreator {
         }
 
         return newIcons
+    }
+
+    /// One icon per display showing "current/total" (e.g. "1/6") instead of every space.
+    private func createCompactIcons(_ spaces: [Space]) -> [(NSImage, Bool)] {
+        let total = spaces.count
+        var labelsPerDisplay = [String]()
+        var seenDisplays = Set<String>()
+
+        for space in spaces where !seenDisplays.contains(space.displayID) {
+            seenDisplays.insert(space.displayID)
+            let current = spaces.first { $0.displayID == space.displayID && $0.isCurrentSpace } ?? space
+            labelsPerDisplay.append("\(current.spaceNumber)/\(total)")
+        }
+
+        let attributes = getStringAttributes(alpha: 1, fontSize: 12)
+        let maxTextWidth = labelsPerDisplay
+            .map { NSString(string: $0).size(withAttributes: attributes).width }
+            .max() ?? iconSize.width
+        iconSize.width = ceil(maxTextWidth) + 2
+        displayCount = labelsPerDisplay.count
+
+        var iconsWithDisplayProperties = [(NSImage, Bool)]()
+        for (index, label) in labelsPerDisplay.enumerated() {
+            let textRect = NSRect(origin: CGPoint.zero, size: iconSize)
+            let image = NSImage(size: iconSize)
+
+            image.lockFocus()
+            NSString(string: label).drawVerticallyCentered(in: textRect, withAttributes: attributes)
+            image.unlockFocus()
+
+            let isLast = index == labelsPerDisplay.count - 1
+            iconsWithDisplayProperties.append((image, !isLast))
+        }
+
+        return iconsWithDisplayProperties
     }
 
     private func createRectWithNumbersIcons(_ icons: [NSImage], _ spaces: [Space], desktopsOnly: Bool) -> [NSImage] {

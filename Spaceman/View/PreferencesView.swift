@@ -156,6 +156,7 @@ struct PreferencesView: View {
             Text("Rectangles with numbers").tag(SpacemanStyle.numbersAndRects.rawValue)
             Text("Rectangles with desktop numbers").tag(SpacemanStyle.desktopNumbersAndRects.rawValue)
             Text("Named spaces").tag(SpacemanStyle.text.rawValue)
+            Text("Compact (current / total)").tag(SpacemanStyle.compact.rawValue)
         }
         .onChange(of: selectedStyle) {
             NotificationCenter.default.post(name: NSNotification.Name(rawValue: "ButtonPressed"), object: nil)
