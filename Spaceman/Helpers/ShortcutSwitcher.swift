@@ -225,6 +225,16 @@ class ShortcutSwitcher {
             + "to key code \(keyCode) using {\(modifiers)}"
     }
 
+    /// Ask macOS for Accessibility access with the system prompt. Unlike
+    /// `AXIsProcessTrusted()`, this registers Spaceman in the Privacy &
+    /// Security → Accessibility list, so the user only has to flip the
+    /// toggle instead of adding the app by hand.
+    @discardableResult
+    static func requestAccessibilityAccess() -> Bool {
+        let promptKey = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
+        return AXIsProcessTrustedWithOptions([promptKey: true] as CFDictionary)
+    }
+
     private func alert(msg: String, permissionTypeName: String) {
         DispatchQueue.main.async {
             let alert = NSAlert()
@@ -236,6 +246,10 @@ class ShortcutSwitcher {
             }
             let response = alert.runModal()
             if response == .alertSecondButtonReturn {
+                if permissionTypeName == "Accessibility" {
+                    // Let macOS register the app and show its own prompt first.
+                    Self.requestAccessibilityAccess()
+                }
                 let task = Process()
                 task.launchPath = "/usr/bin/open"
                 let url = "x-apple.systempreferences:"
