@@ -209,7 +209,7 @@ Spaceman provides multiple ways to switch between spaces quickly and efficiently
 For space switching to work, you need to configure two things:
 
 **1. Accessibility and Automation Permissions**
-- Go to **System Settings → Privacy & Security → Accessibility**
+- Go to **System Settings → Privacy & Security → Accessibility** (on macOS 27 this list is called **Device Control and Data Access**)
 - Add Spaceman to the list of allowed applications.†
 - Enable the checkbox next to Spaceman
 

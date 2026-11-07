@@ -211,3 +211,23 @@ final class GestureSwitcherTests: XCTestCase {
             mock.calls[0].velocity, GestureSwitcher.speedFast)
     }
 }
+
+// MARK: - Permission settings path
+
+final class ShortcutSwitcherSettingsPathTests: XCTestCase {
+
+    func testAutomationPathAlwaysNamesAutomation() {
+        let path = ShortcutSwitcher.settingsPath(for: "Automation")
+        XCTAssertEqual(path, "Privacy & Security → Automation")
+    }
+
+    func testAccessibilityPathFollowsOSVersion() {
+        let path = ShortcutSwitcher.settingsPath(for: "Accessibility")
+        let major = ProcessInfo.processInfo.operatingSystemVersion.majorVersion
+        if major >= 27 {
+            XCTAssertEqual(path, "Privacy & Security → Device Control and Data Access")
+        } else {
+            XCTAssertEqual(path, "Privacy & Security → Accessibility")
+        }
+    }
+}

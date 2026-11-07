@@ -61,6 +61,35 @@ if [[ ! -d "$app_path" ]]; then
   exit 1
 fi
 
+# Give an unsigned archive a real ad-hoc signature. Xcode leaves only the
+# linker's per-binary signature behind, which codesign treats as "not signed
+# at all" and which keeps TCC from attaching a code requirement to the app
+# (the Accessibility grant then never registers). Sign nested code first,
+# deepest paths before their containers, then the app bundle itself.
+adhoc_sign_bundle() {
+  local bundle="$1"
+  local frameworks_dir="$bundle/Contents/Frameworks"
+  if [[ -d "$frameworks_dir" ]]; then
+    while IFS= read -r nested; do
+      codesign --force --sign - "$nested"
+    done < <(
+      find "$frameworks_dir" \
+        -type l -prune \
+        -o \( -name "*.xpc" -o -name "*.app" \) -prune -print \
+        -o -name "*.framework" -print \
+        -o -type f -perm -u+x -name "Autoupdate" -print \
+      | awk '{ print gsub("/", "/"), $0 }' | sort -rn | cut -d" " -f2-
+    )
+  fi
+  codesign --force --sign - "$bundle"
+  codesign --verify --deep --strict "$bundle"
+}
+
+if [[ "$allow_unsigned" == "1" ]]; then
+  echo "note: applying an ad-hoc signature to the unsigned archive" >&2
+  adhoc_sign_bundle "$app_path"
+fi
+
 rm -f "$dmg_path"
 
 # Stage the disk image contents: the app plus an Applications link so the

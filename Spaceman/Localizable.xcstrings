@@ -1126,42 +1126,42 @@
         }
       }
     },
-    "Error: %@\n\nPlease grant %@ permissions to Spaceman in System Settings → Privacy and Security." : {
+    "Error: %@\n\nPlease grant %@ permissions to Spaceman in System Settings → %@." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Fehler: %1$@\n\nBitte gewähren Sie Spaceman %2$@-Berechtigungen in Systemeinstellungen → Datenschutz & Sicherheit."
+            "value" : "Fehler: %1$@\n\nBitte gewähren Sie Spaceman %2$@-Berechtigungen in Systemeinstellungen → %3$@."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "new",
-            "value" : "Error: %1$@\n\nPlease grant %2$@ permissions to Spaceman in System Settings → Privacy and Security."
+            "value" : "Error: %1$@\n\nPlease grant %2$@ permissions to Spaceman in System Settings → %3$@."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Error: %1$@\n\nPor favor, otorga permisos de %2$@ a Spaceman en Ajustes del Sistema → Privacidad y seguridad."
+            "value" : "Error: %1$@\n\nPor favor, otorga permisos de %2$@ a Spaceman en Ajustes del Sistema → %3$@."
           }
         },
         "es-419" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Error: %1$@\n\nPor favor, otorga permisos de %2$@ a Spaceman en Configuración del Sistema → Privacidad y seguridad."
+            "value" : "Error: %1$@\n\nPor favor, otorga permisos de %2$@ a Spaceman en Configuración del Sistema → %3$@."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Erreur : %1$@\n\nVeuillez accorder les autorisations %2$@ à Spaceman dans Réglages système → Confidentialité et sécurité."
+            "value" : "Erreur : %1$@\n\nVeuillez accorder les autorisations %2$@ à Spaceman dans Réglages système → %3$@."
           }
         },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Fout: %1$@\n\nGeef Spaceman a.u.b. %2$@-machtigingen in Systeeminstellingen → Privacy en beveiliging."
+            "value" : "Fout: %1$@\n\nGeef Spaceman a.u.b. %2$@-machtigingen in Systeeminstellingen → %3$@."
           }
         }
       }
@@ -3140,6 +3140,86 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Vorige"
+          }
+        }
+      }
+    },
+    "Privacy & Security → %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Datenschutz & Sicherheit → %@"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Privacy & Security → %@"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Privacidad y seguridad → %@"
+          }
+        },
+        "es-419" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Privacidad y seguridad → %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Confidentialité et sécurité → %@"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Privacy en beveiliging → %@"
+          }
+        }
+      }
+    },
+    "Privacy & Security → Device Control and Data Access" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Datenschutz & Sicherheit → Gerätesteuerung und Datenzugriff"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Privacy & Security → Device Control and Data Access"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Privacidad y seguridad → Control del dispositivo y acceso a datos"
+          }
+        },
+        "es-419" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Privacidad y seguridad → Control del dispositivo y acceso a datos"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Confidentialité et sécurité → Contrôle de l'appareil et accès aux données"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Privacy en beveiliging → Apparaatbeheer en gegevenstoegang"
           }
         }
       }

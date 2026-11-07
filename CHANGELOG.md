@@ -6,6 +6,13 @@ The format follows Keep a Changelog and uses semantic version headings.
 
 ## [Unreleased]
 
+### Changed
+- The permission error now points at the right place in System Settings: on macOS 27 the
+  Accessibility list lives under Privacy & Security → Device Control and Data Access.
+- Unsigned release builds now get a real ad-hoc code signature for the whole bundle (Sparkle's
+  helpers included), so `codesign --verify` passes and macOS can attach a code requirement to the
+  app when it is added to the Accessibility list.
+
 ## [1.1.3] - 2026-11-02
 
 ### Changed

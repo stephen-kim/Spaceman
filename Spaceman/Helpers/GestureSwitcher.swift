@@ -160,7 +160,8 @@ class GestureSwitcher {
     // MARK: - Public API
 
     /// Ensure macOS allows this app to post synthetic events
-    /// (System Settings → Privacy & Security → Accessibility).
+    /// (System Settings → Privacy & Security → Accessibility, or
+    /// → Device Control and Data Access on macOS 27).
     /// If permission is missing, triggers the system prompt.
     @discardableResult
     static func ensurePostEventAccess() -> Bool {

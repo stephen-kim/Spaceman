@@ -72,11 +72,12 @@ class ShortcutSwitcher {
                     default:
                         permissionType = "Automation"
                     }
+                    let settingsPath = Self.settingsPath(for: permissionType)
                     let msg = String(localized: """
                         Error: \(errorBriefMessage)
 
                         Please grant \(permissionType) permissions \
-                        to Spaceman in System Settings → Privacy and Security.
+                        to Spaceman in System Settings → \(settingsPath).
                         """)
                     self.alert(
                         msg: msg,
@@ -225,10 +226,22 @@ class ShortcutSwitcher {
             + "to key code \(keyCode) using {\(modifiers)}"
     }
 
+    /// Where a permission lives inside System Settings → Privacy & Security.
+    /// macOS 27 folded the Accessibility list into "Device Control and
+    /// Data Access"; older systems still have a separate Accessibility row.
+    static func settingsPath(for permissionType: String) -> String {
+        let majorVersion = ProcessInfo.processInfo.operatingSystemVersion.majorVersion
+        if permissionType == "Accessibility" && majorVersion >= 27 {
+            return String(localized: "Privacy & Security → Device Control and Data Access")
+        }
+        return String(localized: "Privacy & Security → \(permissionType)")
+    }
+
     /// Ask macOS for Accessibility access with the system prompt. Unlike
-    /// `AXIsProcessTrusted()`, this registers Spaceman in the Privacy &
-    /// Security → Accessibility list, so the user only has to flip the
-    /// toggle instead of adding the app by hand.
+    /// `AXIsProcessTrusted()`, this registers Spaceman in the Accessibility
+    /// list (System Settings → Privacy & Security → Accessibility, or
+    /// → Device Control and Data Access on macOS 27), so the user only has
+    /// to flip the toggle instead of adding the app by hand.
     @discardableResult
     static func requestAccessibilityAccess() -> Bool {
         let promptKey = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
