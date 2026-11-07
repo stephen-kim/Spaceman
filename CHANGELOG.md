@@ -6,6 +6,8 @@ The format follows Keep a Changelog and uses semantic version headings.
 
 ## [Unreleased]
 
+## [1.1.4] - 2026-11-07
+
 ### Changed
 - The permission error now points at the right place in System Settings: on macOS 27 the
   Accessibility list lives under Privacy & Security → Device Control and Data Access.
